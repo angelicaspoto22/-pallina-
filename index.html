@@ -1,0 +1,445 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+export default function BallGame() {
+  const canvasRef = useRef(null);
+  const [score, setScore] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [lives, setLives] = useState(3);
+  const [level, setLevel] = useState(1);
+  const [combo, setCombo] = useState(0);
+  const [showCombo, setShowCombo] = useState(false);
+  const [powerUp, setPowerUp] = useState(null);
+  const [particles, setParticles] = useState([]);
+  
+  const gameStateRef = useRef({
+    ball: { x: 50, y: 50, radius: 15, dx: 3, dy: 3 },
+    paddle: { x: 150, y: 550, width: 100, height: 15 },
+    blocks: [],
+    animationId: null,
+    powerUpActive: null,
+    powerUpTimer: 0,
+    particles: []
+  });
+
+  const initBlocks = (lvl) => {
+    const blocks = [];
+    const rows = 4 + lvl;
+    const cols = 6;
+    const blockWidth = 60;
+    const blockHeight = 20;
+    const padding = 5;
+    
+    for (let i = 0; i < rows; i++) {
+      for (let j = 0; j < cols; j++) {
+        const isPowerUp = Math.random() < 0.15;
+        blocks.push({
+          x: j * (blockWidth + padding) + 10,
+          y: i * (blockHeight + padding) + 50,
+          width: blockWidth,
+          height: blockHeight,
+          active: true,
+          hits: Math.floor(Math.random() * 2) + 1,
+          maxHits: Math.floor(Math.random() * 2) + 1,
+          color: `hsl(${(i * j * 30) % 360}, 70%, 60%)`,
+          isPowerUp: isPowerUp,
+          powerUpType: isPowerUp ? ['wide', 'slow', 'multi'][Math.floor(Math.random() * 3)] : null
+        });
+      }
+    }
+    return blocks;
+  };
+
+  const createParticles = (x, y, color) => {
+    const newParticles = [];
+    for (let i = 0; i < 15; i++) {
+      newParticles.push({
+        x, y,
+        dx: (Math.random() - 0.5) * 6,
+        dy: (Math.random() - 0.5) * 6,
+        life: 30,
+        color
+      });
+    }
+    gameStateRef.current.particles.push(...newParticles);
+  };
+
+  const startGame = () => {
+    setGameStarted(true);
+    setGameOver(false);
+    setScore(0);
+    setLives(3);
+    setLevel(1);
+    setCombo(0);
+    setPowerUp(null);
+    const canvas = canvasRef.current;
+    gameStateRef.current.ball = { 
+      x: canvas.width / 2, 
+      y: canvas.height / 2, 
+      radius: 15, 
+      dx: 3, 
+      dy: 3 
+    };
+    gameStateRef.current.paddle = { 
+      x: canvas.width / 2 - 50, 
+      y: canvas.height - 50, 
+      width: 100, 
+      height: 15 
+    };
+    gameStateRef.current.blocks = initBlocks(1);
+    gameStateRef.current.powerUpActive = null;
+    gameStateRef.current.powerUpTimer = 0;
+    gameStateRef.current.particles = [];
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    const resizeCanvas = () => {
+      const container = canvas.parentElement;
+      canvas.width = Math.min(400, container.clientWidth - 20);
+      canvas.height = 600;
+      if (gameStarted && !gameOver) {
+        gameStateRef.current.paddle.y = canvas.height - 50;
+      }
+    };
+    
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    const draw = () => {
+      const { ball, paddle, blocks, particles } = gameStateRef.current;
+      
+      // Sfondo animato
+      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      gradient.addColorStop(0, '#0f0c29');
+      gradient.addColorStop(0.5, '#302b63');
+      gradient.addColorStop(1, '#24243e');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Particelle
+      particles.forEach((p, i) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fillStyle = p.color + Math.floor((p.life / 30) * 255).toString(16).padStart(2, '0');
+        ctx.fill();
+      });
+
+      // Pallina con effetto glow
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = '#00ff88';
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      const ballGradient = ctx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, ball.radius);
+      ballGradient.addColorStop(0, '#00ffaa');
+      ballGradient.addColorStop(1, '#00aa66');
+      ctx.fillStyle = ballGradient;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Racchetta con effetto power-up
+      const paddleColor = gameStateRef.current.powerUpActive === 'wide' ? '#ffaa00' : 
+                          gameStateRef.current.powerUpActive === 'slow' ? '#00aaff' : '#ff6b6b';
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = paddleColor;
+      ctx.fillStyle = paddleColor;
+      ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+      ctx.shadowBlur = 0;
+
+      // Blocchi
+      blocks.forEach(block => {
+        if (block.active) {
+          const opacity = block.hits / block.maxHits;
+          ctx.fillStyle = block.color;
+          ctx.globalAlpha = 0.3 + (opacity * 0.7);
+          ctx.fillRect(block.x, block.y, block.width, block.height);
+          ctx.globalAlpha = 1;
+          
+          if (block.isPowerUp) {
+            ctx.fillStyle = '#ffff00';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('⭐', block.x + block.width / 2, block.y + block.height / 2 + 5);
+          }
+          
+          if (block.maxHits > 1) {
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(block.hits, block.x + block.width / 2, block.y + block.height / 2 + 4);
+          }
+        }
+      });
+    };
+
+    const update = () => {
+      if (!gameStarted || gameOver) return;
+
+      const { ball, paddle, blocks, particles } = gameStateRef.current;
+
+      ball.x += ball.dx;
+      ball.y += ball.dy;
+
+      // Aggiorna particelle
+      for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].x += particles[i].dx;
+        particles[i].y += particles[i].dy;
+        particles[i].life--;
+        if (particles[i].life <= 0) {
+          particles.splice(i, 1);
+        }
+      }
+
+      // Power-up timer
+      if (gameStateRef.current.powerUpTimer > 0) {
+        gameStateRef.current.powerUpTimer--;
+        if (gameStateRef.current.powerUpTimer === 0) {
+          gameStateRef.current.powerUpActive = null;
+          setPowerUp(null);
+          if (paddle.width !== 100) paddle.width = 100;
+          if (Math.abs(ball.dx) < 2 || Math.abs(ball.dy) < 2) {
+            ball.dx = ball.dx > 0 ? 3 : -3;
+            ball.dy = ball.dy > 0 ? 3 : -3;
+          }
+        }
+      }
+
+      // Collisione con i bordi
+      if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) {
+        ball.dx = -ball.dx;
+      }
+      if (ball.y - ball.radius < 0) {
+        ball.dy = -ball.dy;
+      }
+
+      // Game over se la palla cade
+      if (ball.y + ball.radius > canvas.height) {
+        setLives(prev => {
+          const newLives = prev - 1;
+          if (newLives <= 0) {
+            setGameOver(true);
+            setGameStarted(false);
+          } else {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.dx = 3;
+            ball.dy = 3;
+            setCombo(0);
+          }
+          return newLives;
+        });
+        return;
+      }
+
+      // Collisione con la racchetta
+      if (
+        ball.y + ball.radius > paddle.y &&
+        ball.x > paddle.x &&
+        ball.x < paddle.x + paddle.width &&
+        ball.dy > 0
+      ) {
+        ball.dy = -Math.abs(ball.dy);
+        const hitPos = (ball.x - paddle.x) / paddle.width;
+        ball.dx = (hitPos - 0.5) * 8;
+      }
+
+      // Collisione con i blocchi
+      let hitBlock = false;
+      blocks.forEach(block => {
+        if (block.active) {
+          if (
+            ball.x + ball.radius > block.x &&
+            ball.x - ball.radius < block.x + block.width &&
+            ball.y + ball.radius > block.y &&
+            ball.y - ball.radius < block.y + block.height
+          ) {
+            ball.dy = -ball.dy;
+            block.hits--;
+            hitBlock = true;
+            
+            if (block.hits <= 0) {
+              block.active = false;
+              createParticles(block.x + block.width / 2, block.y + block.height / 2, block.color);
+              
+              setCombo(prev => {
+                const newCombo = prev + 1;
+                if (newCombo > 2) {
+                  setShowCombo(true);
+                  setTimeout(() => setShowCombo(false), 1000);
+                }
+                return newCombo;
+              });
+              
+              setScore(prev => {
+                const newScore = prev + (10 * (1 + Math.floor(combo / 3)));
+                // Aumenta velocità ogni 50 punti
+                if (Math.floor(newScore / 50) > Math.floor(prev / 50)) {
+                  ball.dx *= 1.08;
+                  ball.dy *= 1.08;
+                }
+                return newScore;
+              });
+              
+              if (block.isPowerUp) {
+                gameStateRef.current.powerUpActive = block.powerUpType;
+                gameStateRef.current.powerUpTimer = 300;
+                setPowerUp(block.powerUpType);
+                
+                if (block.powerUpType === 'wide') {
+                  paddle.width = 150;
+                } else if (block.powerUpType === 'slow') {
+                  ball.dx *= 0.6;
+                  ball.dy *= 0.6;
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!hitBlock && combo > 0) {
+        setCombo(0);
+      }
+
+      // Vittoria - passa al livello successivo
+      if (blocks.every(block => !block.active)) {
+        setLevel(prev => {
+          const newLevel = prev + 1;
+          gameStateRef.current.blocks = initBlocks(newLevel);
+          ball.x = canvas.width / 2;
+          ball.y = canvas.height / 2;
+          // Aumenta la velocità del 25% ad ogni livello
+          const speedMultiplier = 1.25;
+          ball.dx = ball.dx * speedMultiplier;
+          ball.dy = ball.dy * speedMultiplier;
+          setScore(s => s + 100 * newLevel);
+          return newLevel;
+        });
+      }
+    };
+
+    const gameLoop = () => {
+      update();
+      draw();
+      gameStateRef.current.animationId = requestAnimationFrame(gameLoop);
+    };
+
+    if (gameStarted) {
+      gameLoop();
+    } else {
+      draw();
+    }
+
+    const handleMove = (clientX) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const paddle = gameStateRef.current.paddle;
+      paddle.x = Math.max(0, Math.min(x - paddle.width / 2, canvas.width - paddle.width));
+    };
+
+    const handleMouseMove = (e) => handleMove(e.clientX);
+    const handleTouchMove = (e) => {
+      e.preventDefault();
+      handleMove(e.touches[0].clientX);
+    };
+
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('touchmove', handleTouchMove);
+      if (gameStateRef.current.animationId) {
+        cancelAnimationFrame(gameStateRef.current.animationId);
+      }
+    };
+  }, [gameStarted, gameOver, combo]);
+
+  const getPowerUpText = (type) => {
+    switch(type) {
+      case 'wide': return '🎯 Racchetta Larga!';
+      case 'slow': return '🐌 Palla Lenta!';
+      case 'multi': return '⚡ Combo Attivo!';
+      default: return '';
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
+      <div className="bg-gray-900 rounded-2xl shadow-2xl p-6 max-w-md w-full">
+        <h1 className="text-4xl font-bold text-center mb-4 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">
+          ⚡ Super Breaker ⚡
+        </h1>
+        
+        <div className="bg-gray-800 rounded-lg p-4 mb-4">
+          <div className="grid grid-cols-3 gap-4 text-white text-center">
+            <div>
+              <div className="text-gray-400 text-sm">Punteggio</div>
+              <div className="text-2xl font-bold text-cyan-400">{score}</div>
+            </div>
+            <div>
+              <div className="text-gray-400 text-sm">Livello</div>
+              <div className="text-2xl font-bold text-yellow-400">{level}</div>
+            </div>
+            <div>
+              <div className="text-gray-400 text-sm">Vite</div>
+              <div className="text-2xl">{'❤️'.repeat(lives)}</div>
+            </div>
+          </div>
+          {combo > 2 && (
+            <div className="mt-2 text-center">
+              <span className="inline-block px-3 py-1 bg-orange-500 text-white font-bold rounded-full text-sm animate-pulse">
+                🔥 COMBO x{combo}!
+              </span>
+            </div>
+          )}
+          {powerUp && (
+            <div className="mt-2 text-center">
+              <span className="inline-block px-3 py-1 bg-purple-500 text-white font-bold rounded-full text-sm">
+                {getPowerUpText(powerUp)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="relative bg-gray-800 rounded-lg overflow-hidden">
+          <canvas
+            ref={canvasRef}
+            className="w-full block"
+            style={{ touchAction: 'none' }}
+          />
+          
+          {!gameStarted && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-80">
+              <div className="text-center">
+                {gameOver && (
+                  <div className="mb-6">
+                    <p className="text-4xl font-bold text-white mb-2">
+                      {score >= 500 ? '🏆 INCREDIBILE!' : '💥 Game Over'}
+                    </p>
+                    <p className="text-xl text-cyan-400">Livello raggiunto: {level}</p>
+                    <p className="text-lg text-yellow-400">Punteggio finale: {score}</p>
+                  </div>
+                )}
+                <button
+                  onClick={startGame}
+                  className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white font-bold text-xl rounded-lg shadow-lg transform transition hover:scale-105"
+                >
+                  {gameOver ? '🎮 Gioca Ancora' : '🚀 Inizia Gioco'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 text-center text-gray-400 text-sm">
+          <div>💻 Mouse | 📱 Touch</div>
+          <div className="mt-2">⭐ Raccogli power-up | 🔥 Fai combo!</div>
+        </div>
+      </div>
+    </div>
+  );
+}
